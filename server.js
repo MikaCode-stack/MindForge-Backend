@@ -255,6 +255,49 @@ app.delete("/collections/:collectionName/:id", async function (req, res, next) {
   }
 });
 
+// --------------------------------------------
+// PUT: Update a document by ID
+// URL: /collections/:collectionName/:id
+// Example: PUT /collections/products/507f1f77bcf86cd799439011
+// Body: JSON with fields to update
+// --------------------------------------------
+app.put("/collections/:collectionName/:id", async function (req, res, next) {
+  try {
+    // Validation: Check if request body exists
+    if (!req.body || Object.keys(req.body).length === 0) {
+      return res.status(400).json({ error: "Request body is required" });
+    }
+
+    // Validate ObjectId format
+    if (!ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: "Invalid ID format" });
+    }
+
+    const updateData = { ...req.body };
+    delete updateData._id;
+
+    // Update document using $set operator (only updates specified fields)
+    const result = await req.collection.updateOne(
+      { _id: new ObjectId(req.params.id) }, // Filter
+      { $set: updateData } // Update operation
+    );
+
+    // Check if document was found
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    // Return success with modification count
+    res.status(200).json({
+      msg: "success",
+      modifiedCount: result.modifiedCount, // Number of fields actually changed
+    });
+  } catch (err) {
+    console.log("Error updating document:", err);
+    next(err);
+  }
+});
+
 // Define the port on which the server will listen
 const PORT = 3000;
 
