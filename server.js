@@ -298,10 +298,30 @@ app.put("/collections/:collectionName/:id", async function (req, res, next) {
   }
 });
 
-// Define the port on which the server will listen
-const PORT = 3000;
+// ============================================
+// 6. GLOBAL ERROR HANDLER MIDDLEWARE
+// ============================================
 
-// Start the server and log a message to the console when it's ready
-server.listen(PORT, () => {
-  console.log(`Express server with Morgan is running on port ${PORT}`);
+/**
+ * Catches all errors passed via next(err)
+ * Must be defined after all routes
+ * Has 4 parameters (err, req, res, next) to identify it as error handler
+ */
+app.use((err, req, res, next) => {
+  console.error("Global error handler:", err);
+  res.status(500).json({ error: "An error occurred" });
 });
+
+// ============================================
+// 7. START SERVER
+// ============================================
+
+const port = process.env.PORT || 3000; // Use environment variable or default to 3000
+
+async function startServer() {
+  await connectDB();
+  app.listen(port, () => console.log(`Listening on ${port}`));
+}
+
+startServer();
+
