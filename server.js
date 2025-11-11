@@ -1,48 +1,55 @@
-// Import required modules
-// express → simplifies creating web servers
-// http → built-in Node.js module to create HTTP servers
-// morgan → logs HTTP requests (like access logs)
-var express = require('express');
-var http = require('http');
-var morgan = require('morgan');
+var express = require("express");
+let app = express();
+const cors = require("cors"); // Cross-Origin Resource Sharing - allows frontend from different domain to access API
+app.use(cors({ origin: "http://localhost:5500", credentials: true })); // Enable CORS for all routes
+app.use(express.json()); // Middleware to parse JSON request bodies
+app.set("json spaces", 3); // Format JSON responses with 3-space indentation for readability
 
-// Create an instance of an Express application
-var app = express();
+const path = require("path");
+let PropertiesReader = require("properties-reader");
 
-// Attach the Morgan middleware to log all incoming HTTP requests
-// 'combined' format includes method, status, response time, etc.
-app.use(morgan('combined'));
+// ============================================
+// 2. DATABASE CONFIGURATION
+// ============================================
 
+// Load database credentials from external properties file (keeps sensitive data separate)
+let propertiesPath = path.resolve(__dirname, "./dbconnection.properties");
+let properties = PropertiesReader(propertiesPath);
 
-// Custom middleware that logs each request manually
-// next() passes control to the next middleware in the chain
-app.use((req, res, next) => {
-    console.log(`Incoming request:` + req.method + `from` + req.url);
-    // res.send('Hello, World with Morgan logging!'); // would end the response if uncommented
-    next(); // continue processing
-});
+// Extract individual connection parameters
+const dbPrefix = properties.get("db.prefix");
+const dbHost = properties.get("db.host");
+const dbName = properties.get("db.name"); // Database name
+const dbUser = properties.get("db.user"); // Username
+const dbPassword = properties.get("db.password"); // Password
+const dbParams = properties.get("db.params");
 
-// Middleware that allows or blocks requests based on the current minute
-// If the current minute is even → proceed
-// If odd → send a 403 (Forbidden) response
-app.use(function(req, res, next) {
-    var minute = new Date().getMinutes();
-    if (minute % 2 === 0) {
-        next(); // continue if even minute
-    } else {
-        res.status(403).send('Access denied: odd minute'); // block if odd minute
-    }
-});
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
-// Middleware that handles valid requests (after passing previous checks)
-// Sends a final response message to the client
-app.use(function(req, res, next) {
-    res.end(`Secret info: password is "Jelly!"`);
-});
+// ============================================
+// 3. MONGODB CONNECTION
+// ============================================
 
+// Construct MongoDB connection string
+const uri = `${dbPrefix}${dbUser}:${dbPassword}${dbHost}${dbParams}`;
 
-// Create an HTTP server using the Express app as the request handler
-const server = http.createServer(app);
+// Create MongoDB client with Stable API version
+const client = new MongoClient(uri, { serverApi: ServerApiVersion.v1 });
+
+let db1; // Global variable to hold database connection
+
+// Async function to establish database connection
+async function connectDB() {
+  try {
+    await client.connect();
+    console.log("Connected to MongoDb");
+    db1 = client.db(dbName); // Connect to specific database
+  } catch (err) {
+    console.error("MongoDB connection error:", err);
+  }
+}
+
+connectDB(); // Initialize database connection when server starts
 
 // Define the port on which the server will listen
 const PORT = 3000;
