@@ -316,7 +316,7 @@ app.use((err, req, res, next) => {
 // 7. START SERVER
 // ============================================
 
-const port = process.env.PORT || 3000; // Use environment variable or default to 3000
+const port = process.env.PORT || 5000; // Use environment variable or default to 3000
 
 async function startServer() {
   await connectDB();
