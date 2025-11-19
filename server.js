@@ -1,16 +1,37 @@
+// ============================================
+// 1. DEPENDENCIES & INITIAL SETUP
+// ============================================
+
 var express = require("express");
 let app = express();
 const cors = require("cors"); // Cross-Origin Resource Sharing - allows frontend from different domain to access API
-app.use(cors({ origin: "http://localhost:5500", credentials: true })); // Enable CORS for all routes
+const allowed = [
+  "http://localhost:5500",           // local dev
+  "http://127.0.0.1:5500",      // GitHub Pages production
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    // allow requests with no origin (e.g. curl, mobile clients)
+    if (!origin) return callback(null, true);
+    if (allowed.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('CORS policy violation'), false);
+    }
+  },
+  credentials: false
+}));
+
 app.use(express.json()); // Middleware to parse JSON request bodies
 app.set("json spaces", 3); // Format JSON responses with 3-space indentation for readability
 
 const path = require("path");
 let PropertiesReader = require("properties-reader");
 
-// ============================================
+// =======================================
 // 2. DATABASE CONFIGURATION
-// ============================================
+// =======================================
 
 // Load database credentials from external properties file (keeps sensitive data separate)
 let propertiesPath = path.resolve(__dirname, "./dbconnection.properties");
@@ -92,97 +113,40 @@ app.get("/collections/:collectionName", async function (req, res, next) {
   }
 });
 
-// --------------------------------------------
-// GET: Retrieve limited, sorted documents
-// URL: /collections1/:collectionName
-// Example: GET /collections1/products
-// Returns: 3 documents sorted by price (descending)
-// --------------------------------------------
-app.get("/collections1/:collectionName", async function (req, res, next) {
-  try {
-    console.log("Received request for collection:", req.params.collectionName);
-    console.log("Accessing collection: ", req.collection.collectionName);
+// Helper - escape regex special chars (prevents RegExp errors / injection)
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
-    // Fetch documents with limit and sort options
-    const results = await req.collection
-      .find({}, { limit: 3, sort: { price: -1 } })
+app.get("/search", async function(req, res) {
+  // Use a normalized variable name
+  const rawQuery = (req.query.query || "").toString().trim();
+  if (!rawQuery) {
+    return res.status(400).json({ message: "Search query is missing" });
+  }
+
+  try {
+    
+    const collection = db1.collection("products"); 
+    // Escape user input so special regex chars don't break the RegExp
+    const safe = escapeRegex(rawQuery);
+    const regex = new RegExp(safe, "i"); // case-insensitive
+
+    // Use $or to search across fields
+    const results = await collection
+      .find({ title : regex })
+      // .limit(100) // optional: limit for performance
       .toArray();
-    console.log("Retrieved data: ", results);
-    res.status(200).json(results);
+
+    console.log(`Search for "${rawQuery}" returned ${results.length} results`);
+    res.json(results);
   } catch (err) {
-    console.log("Error fetching documents: ", err);
-    res.status(500).json({ error: "Failed to fetch data" });
+    console.error("Search error:", err);
+    // return a JSON error so fetch() can parse it easily
+    return res.status(500).json({ error: "Search failed" });
   }
 });
 
-// --------------------------------------------
-// GET: Retrieve documents with dynamic sorting
-// URL: /collections2/:collectionName/:max/:sortAspect/:sortAscDesc
-// Example: GET /collections2/products/10/price/desc
-// Parameters:
-//   - max: number of documents to return
-//   - sortAspect: field to sort by (e.g., 'price', 'title')
-//   - sortAscDesc: 'asc' or 'desc' for sort direction
-// --------------------------------------------
-app.get(
-  "/collections2/:collectionName/:max/:sortAspect/:sortAscDesc",
-  async function (req, res, next) {
-    try {
-      // Check if collection middleware successfully attached collection
-      if (!req.collection) {
-        return res.status(500).send("Collection not found");
-      }
-
-      // Parse max parameter to integer (base 10)
-      var max = parseInt(req.params.max, 10);
-
-      // Convert sort direction to MongoDB format: 1 for ascending, -1 for descending
-      const sortDirection =
-        req.params.sortAscDesc.toLowerCase() === "desc" ? -1 : 1;
-
-      // Query with dynamic sorting using computed property name
-      const results = await req.collection
-        .find({}) // Empty filter = get all documents
-        .limit(max) // Limit number of results
-        .sort({ [req.params.sortAspect]: sortDirection }) // Dynamic field sorting
-        .toArray();
-
-      return res.status(200).json(results);
-    } catch (err) {
-      console.log("Error fetching documents: ", err);
-      next(err);
-    }
-  }
-);
-
-// --------------------------------------------
-// GET: Retrieve a single document by ID
-// URL: /collections/:collectionName/:id
-// Example: GET /collections/products/507f1f77bcf86cd799439011
-// --------------------------------------------
-app.get("/collections/:collectionName/:id", async function (req, res, next) {
-  try {
-    // Validate that the provided ID is a valid MongoDB ObjectId format
-    if (!ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ error: "Invalid ID format" });
-    }
-
-    // Find document by converting string ID to ObjectId
-    const result = await req.collection.findOne({
-      _id: new ObjectId(req.params.id),
-    });
-
-    // Check if document exists
-    if (!result) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    res.json(result);
-  } catch (err) {
-    console.log("Error fetching document by ID:", err);
-    next(err);
-  }
-});
 
 // --------------------------------------------
 // POST: Create a new document
@@ -190,7 +154,7 @@ app.get("/collections/:collectionName/:id", async function (req, res, next) {
 // Example: POST /collections/products
 // Body: JSON with title, price, description, etc.
 // --------------------------------------------
-app.post("/collections/:collectionName", async function (req, res, next) {
+app.post("/products", async function (req, res, next) {
   try {
     // Validation: Check if request body exists and is not empty
     if (!req.body || Object.keys(req.body).length === 0) {
@@ -213,7 +177,7 @@ app.post("/collections/:collectionName", async function (req, res, next) {
     }
 
     // Insert document into collection
-    const result = await req.collection.insertOne(req.body);
+    const result = await db1.collection('products').insertOne(req.body);
 
     // Return inserted document with its new _id
     const insertedDocument = { _id: result.insertedId, ...req.body };
@@ -224,13 +188,11 @@ app.post("/collections/:collectionName", async function (req, res, next) {
     next(err);
   }
 });
-
 // --------------------------------------------
 // DELETE: Remove a document by ID
 // URL: /collections/:collectionName/:id
-// Example: DELETE /collections/products/507f1f77bcf86cd799439011
 // --------------------------------------------
-app.delete("/collections/:collectionName/:id", async function (req, res, next) {
+app.delete("/products/:collectionName/:id", async function (req, res, next) {
   try {
     // Validate ObjectId format
     if (!ObjectId.isValid(req.params.id)) {
@@ -261,7 +223,7 @@ app.delete("/collections/:collectionName/:id", async function (req, res, next) {
 // Example: PUT /collections/products/507f1f77bcf86cd799439011
 // Body: JSON with fields to update
 // --------------------------------------------
-app.put("/collections/:collectionName/:id", async function (req, res, next) {
+app.put("/products/:id", async function (req, res, next) {
   try {
     // Validation: Check if request body exists
     if (!req.body || Object.keys(req.body).length === 0) {
@@ -277,7 +239,7 @@ app.put("/collections/:collectionName/:id", async function (req, res, next) {
     delete updateData._id;
 
     // Update document using $set operator (only updates specified fields)
-    const result = await req.collection.updateOne(
+    const result = await db1.collection("products").updateOne(
       { _id: new ObjectId(req.params.id) }, // Filter
       { $set: updateData } // Update operation
     );
@@ -298,6 +260,133 @@ app.put("/collections/:collectionName/:id", async function (req, res, next) {
   }
 });
 
+
+//Creating an order entry after submission
+
+// Create new order
+app.post('/orders', async (req, res) => {
+  try {
+    const ordersPayload = req.body; // expect an object with order fields
+    // basic validation
+    if (!ordersPayload || Object.keys(ordersPayload).length === 0) {
+      return res.status(400).json({ error: 'Order body required' });
+    }
+    // Example required fields: firstName, lastName, items (array)
+    if (!Array.isArray(ordersPayload.items) || ordersPayload.items.length === 0) {
+      return res.status(400).json({ error: 'Order must include items array' });
+    }
+
+    // Add server-side metadata
+    ordersPayload.createdAt = new Date();
+    ordersPayload.status = ordersPayload.status || 'pending';
+    // calculate total on server for integrity 
+    ordersPayload.total = Number(ordersPayload.total || ordersPayload.items.reduce((s,i)=> s + ((i.price||0)*(i.quantity||1)), 0));
+
+    const result = await db1.collection('orders').insertOne(ordersPayload);
+    const inserted = await db1.collection('orders').findOne({ _id: result.insertedId });
+    return res.status(201).json(inserted);
+  } catch(err) {
+    console.error('Error creating order:', err);
+    return res.status(500).json({ error: 'Failed to create order' });
+  }
+});
+
+
+// Update order by id (partial updates)
+app.put('/orders/:id', async (req, res) => {
+   const id = req.params.id;
+  const updates = req.body;
+  delete updates._id;
+  updates.updatedAt = new Date();
+  const r = await db1.collection('orders').updateOne(
+    { _id: new ObjectId(id) },
+    { $set: updates }
+  );
+  const updated = await db1.collection('orders').findOne({ _id: new ObjectId(id) });
+  res.json(updated);
+});
+
+// Delete order by id
+app.delete('/orders/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid id' });
+
+    const result = await db1.collection('orders').deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0) return res.status(404).json({ error: 'Order not found' });
+    return res.json({ msg: 'Order deleted', id });
+  } catch(err) {
+    console.error('Error deleting order:', err);
+    return res.status(500).json({ error: 'Failed to delete order' });
+  }
+});
+
+//admin logging(fetches users from the database and cross-checks for authentication)
+app.get('/users', async (req, res) => {
+  try {const db = req.app.locals.db;
+    const users = await db.collection('users').find({}).toArray();
+    
+    // Remove passwords from response for security
+    const usersWithoutPasswords = users.map(user => {
+      const { password, ...userWithoutPassword } = user;
+      return userWithoutPassword;
+    });
+    
+    res.json(usersWithoutPasswords);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'Failed to fetch users' });
+  }
+});
+app.post('/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    // Validate input
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email and password are required' 
+      });
+    }
+    
+    const db = req.app.locals.db;
+    
+    // Find user by email
+    const user = await db1.collection('users').findOne({ email });
+    
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid email or password' 
+      });
+    }
+    
+    // Check password
+    if (user.password !== password) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid email or password' 
+      });
+    }
+    
+    // Login successful - return user info without password
+    const { password: _, ...userWithoutPassword } = user;
+    
+    res.json({
+      success: true,
+      message: 'Login successful',
+      user: userWithoutPassword
+    });
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during login' 
+    });
+  }
+});
 // ============================================
 // 6. GLOBAL ERROR HANDLER MIDDLEWARE
 // ============================================
@@ -316,7 +405,7 @@ app.use((err, req, res, next) => {
 // 7. START SERVER
 // ============================================
 
-const port = process.env.PORT || 5000; // Use environment variable or default to 3000
+const port = process.env.PORT || 3000; // Use environment variable or default to 3000
 
 async function startServer() {
   await connectDB();
@@ -324,4 +413,3 @@ async function startServer() {
 }
 
 startServer();
-
