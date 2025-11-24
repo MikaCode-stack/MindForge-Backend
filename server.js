@@ -42,6 +42,8 @@ const dbPassword = process.env.DB_PASSWORD;
 const dbParams = process.env.DB_PARAMS;
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
+console.log('TEST_VAR:', process.env.TEST_VAR);
 console.log('DB_PREFIX:', process.env.DB_PREFIX);
 console.log('DB_USER:', process.env.DB_USER);
 console.log('DB_PASSWORD:', process.env.DB_PASSWORD);
