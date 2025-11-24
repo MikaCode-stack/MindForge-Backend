@@ -1,7 +1,7 @@
 // ============================================
 // 1. DEPENDENCIES & INITIAL SETUP
 // ============================================
-
+require('dotenv').config();
 var express = require("express");
 let app = express();
 const cors = require("cors"); // Cross-Origin Resource Sharing - allows frontend from different domain to access API
@@ -390,6 +390,11 @@ app.post('/login', async (req, res) => {
     });
   }
 });
+
+app.get("/healthz", (req, res) => {
+  res.status(200).send("OK");
+});
+
 // ============================================
 // 6. GLOBAL ERROR HANDLER MIDDLEWARE
 // ============================================
