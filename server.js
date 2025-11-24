@@ -49,14 +49,14 @@ console.log('DB_USER:', process.env.DB_USER);
 console.log('DB_PASSWORD:', process.env.DB_PASSWORD);
 console.log('DB_HOST:', process.env.DB_HOST);
 console.log('DB_NAME:', process.env.DB_NAME);
-console.log('Full connection string:', yourConnectionString); // whatever variable holds your connection string
+
 // ============================================
 // 3. MONGODB CONNECTION
 // ============================================
 
 // Construct MongoDB connection string
 const uri = `${dbPrefix}${dbUser}:${dbPassword}${dbHost}${dbParams}`;
-
+console.log('Full connection string:', uri); // whatever variable holds your connection string
 // Create MongoDB client with Stable API version
 const client = new MongoClient(uri, { serverApi: ServerApiVersion.v1 });
 
