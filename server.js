@@ -34,7 +34,7 @@ let PropertiesReader = require("properties-reader");
 // =======================================
 
 // Load database credentials from external properties file (keeps sensitive data separate)
-let propertiesPath = path.resolve(__dirname, ".env");
+let propertiesPath = path.resolve(__dirname, "process.env");
 let properties = PropertiesReader(propertiesPath);
 
 // Extract individual connection parameters
