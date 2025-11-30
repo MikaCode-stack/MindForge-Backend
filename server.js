@@ -25,6 +25,10 @@ app.use(cors({
 
 app.use(express.json()); // Middleware to parse JSON request bodies
 app.set("json spaces", 3); // Format JSON responses with 3-space indentation for readability
+app.use((req, res, next) => {
+  console.log(`${new Date().toISOString()} ${req.method} ${req.originalUrl} - IP: ${req.ip}`);
+  next();
+});
 
 const path = require("path");
 
@@ -42,24 +46,12 @@ const dbParams = process.env.DB_PARAMS;
 
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
-console.log('TEST_VAR:', process.env.TEST_VAR);
-console.log('DB_PREFIX:', process.env.DB_PREFIX);
-console.log('DB_USER:', process.env.DB_USER);
-console.log('DB_PASSWORD:', process.env.DB_PASSWORD);
-console.log('DB_HOST:', process.env.DB_HOST);
-console.log('DB_NAME:', process.env.DB_NAME);
-
 // ============================================
 // 3. MONGODB CONNECTION
 // ============================================
-
-// Construct MongoDB connection string
-const uri = `${dbPrefix}${dbUser}:${dbPassword}${dbHost}${dbParams}`;
-console.log('Full connection string:', uri); // whatever variable holds your connection string
-// Create MongoDB client with Stable API version
 const client = new MongoClient(uri, { serverApi: ServerApiVersion.v1 });
 
-let db1; // Global variable to hold database connection
+let db1;
 
 // Async function to establish database connection
 async function connectDB() {
@@ -91,28 +83,25 @@ app.param("collectionName", function (req, res, next, collectionName) {
 });
 
 // ============================================
-// 5. REST API ROUTES (CRUD OPERATIONS)
+// 5. REST API ROUTES
 // ============================================
+const fs = require('fs');
 
-// --------------------------------------------
-// GET: Retrieve all documents from a collection
-// URL: /collections/:collectionName
-// Example: GET /collections/products
-// --------------------------------------------
-app.get("/collections/:collectionName", async function (req, res, next) {
+//Get allowing images retrieving
+app.get('/images/lessons/:file', (req, res) => {
+  const img = path.join(__dirname, 'images', req.params.file);
+  fs.access(img, fs.constants.R_OK, (err) => {
+    if (err) return res.status(404).json({ error: 'Image not found' });
+    res.sendFile(img);
+  });
+});
+
+// GET: Retrieve all documents from lessons collection
+app.get("/lessons", async function (req, res, next) {
   try {
-    console.log("Received request for collection:", req.params.collectionName);
-    console.log("Accessing collection: ", req.collection.collectionName);
-
-    // Fetch all documents from the collection
-    const results = await req.collection.find({}).toArray();
-    console.log("Retrieved data: ", results);
-
-    res.json(results); // Send results as JSON response
-  } catch (err) {
-    console.log("Error fetching documents: ", err.message);
-    next(err); // Pass error to error handling middleware
-  }
+    const lessons = await db1.collection('lessons').find({}).toArray();
+    res.json(lessons);
+  } catch (err) { next(err); }
 });
 
 // Helper - escape regex special chars (prevents RegExp errors / injection)
@@ -120,43 +109,40 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-app.get("/search", async function(req, res) {
-  // Use a normalized variable name
+//Search items by subject
+app.get("/search", async function (req, res) {
+  const collection = db1.collection("lessons");
   const rawQuery = (req.query.query || "").toString().trim();
   if (!rawQuery) {
-    return res.status(400).json({ message: "Search query is missing" });
+    const results = await collection.find({}).toArray();
+    return res.json(results);
   }
 
   try {
-    
-    const collection = db1.collection("products"); 
-    // Escape user input so special regex chars don't break the RegExp
-    const safe = escapeRegex(rawQuery);
-    const regex = new RegExp(safe, "i"); // case-insensitive
 
-    // Use $or to search across fields
+    const safe = escapeRegex(rawQuery);
+    const regex = new RegExp(safe, "i");
+
+    // Search across all required fields
     const results = await collection
-      .find({ title : regex })
-      // .limit(100) // optional: limit for performance
+      .find({
+        $or: [
+          { subject: regex },
+          { location: regex },
+          { price: regex },
+        ],
+      })
       .toArray();
 
-    console.log(`Search for "${rawQuery}" returned ${results.length} results`);
     res.json(results);
   } catch (err) {
     console.error("Search error:", err);
-    // return a JSON error so fetch() can parse it easily
-    return res.status(500).json({ error: "Search failed" });
+    res.status(500).json({ error: "Search failed" });
   }
 });
 
-
-// --------------------------------------------
-// POST: Create a new document
-// URL: /collections/:collectionName
-// Example: POST /collections/products
-// Body: JSON with title, price, description, etc.
-// --------------------------------------------
-app.post("/products", async function (req, res, next) {
+//POST Route to create a lesson(only in backend) 
+app.post("/lessons", async function (req, res, next) {
   try {
     // Validation: Check if request body exists and is not empty
     if (!req.body || Object.keys(req.body).length === 0) {
@@ -164,7 +150,7 @@ app.post("/products", async function (req, res, next) {
     }
 
     // Validate required fields are present
-    const requiredFields = ["title", "price", "description"];
+    const requiredFields = ["subject", "price", "description"];
     const missingFields = requiredFields.filter((field) => !req.body[field]);
 
     if (missingFields.length > 0) {
@@ -179,7 +165,7 @@ app.post("/products", async function (req, res, next) {
     }
 
     // Insert document into collection
-    const result = await db1.collection('products').insertOne(req.body);
+    const result = await db1.collection("lessons").insertOne(req.body);
 
     // Return inserted document with its new _id
     const insertedDocument = { _id: result.insertedId, ...req.body };
@@ -190,71 +176,40 @@ app.post("/products", async function (req, res, next) {
     next(err);
   }
 });
-// --------------------------------------------
-// DELETE: Remove a document by ID
-// URL: /collections/:collectionName/:id
-// --------------------------------------------
-app.delete("/products/:collectionName/:id", async function (req, res, next) {
+
+//DELETE a lesson(only in backend)
+app.delete("/lessons/delete/:id", async (req, res, next) => {
   try {
-    // Validate ObjectId format
-    if (!ObjectId.isValid(req.params.id)) {
-      return res.status(400).json({ error: "Invalid ID format" });
-    }
-
-    // Delete document matching the ID
-    const result = await req.collection.deleteOne({
-      _id: new ObjectId(req.params.id),
-    });
-
-    // Check if document was found and deleted
-    if (result.deletedCount === 0) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    console.log("Deleted document with ID:", req.params.id);
+    if (!ObjectId.isValid(req.params.id)) return res.status(400).json({ error: "Invalid ID format" });
+    const result = await db1.collection('lessons').deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).json({ error: "Document not found" });
     res.status(200).json({ msg: "Document deleted successfully" });
-  } catch (err) {
-    console.log("Error deleting document:", err);
-    return res.status(500).json({ error: "Failed to delete" });
-  }
+  } catch (err) { next(err); }
 });
 
-// --------------------------------------------
-// PUT: Update a course by ID
-// URL: /products/:id
-// Example: PUT /products/507f1f77bcf86cd799439011
-// Body: JSON with fields to update
-// --------------------------------------------
-app.put("/products/:id", async function (req, res, next) {
+//PUT: to modify lessons(only in the backend)
+app.put("/lessons/:id", async function (req, res, next) {
   try {
-    // Validation: Check if request body exists
-    if (!req.body || Object.keys(req.body).length === 0) {
+      if (!req.body || Object.keys(req.body).length === 0) {
       return res.status(400).json({ error: "Request body is required" });
     }
-
-    // Validate ObjectId format
     if (!ObjectId.isValid(req.params.id)) {
       return res.status(400).json({ error: "Invalid ID format" });
     }
 
     const updateData = { ...req.body };
     delete updateData._id;
-
-    // Update document using $set operator (only updates specified fields)
-    const result = await db1.collection("products").updateOne(
+    const result = await db1.collection("lessons").updateOne(
       { _id: new ObjectId(req.params.id) }, // Filter
-      { $set: updateData } // Update operation
+      { $set: updateData }
     );
-
-    // Check if document was found
     if (result.matchedCount === 0) {
       return res.status(404).json({ error: "Product not found" });
     }
 
-    // Return success with modification count
     res.status(200).json({
       msg: "success",
-      modifiedCount: result.modifiedCount, // Number of fields actually changed
+      modifiedCount: result.modifiedCount,
     });
   } catch (err) {
     console.log("Error updating document:", err);
@@ -262,136 +217,86 @@ app.put("/products/:id", async function (req, res, next) {
   }
 });
 
-
 //Creating an order entry after submission
 
 // Create new order
-app.post('/orders', async (req, res) => {
+//Creates an order each time SubmitOrder is performed in front-end
+//Contains: customer information(order information), items in the customer's cart and the total of their cart
+app.post("/orders", async (req, res) => {
   try {
-    const ordersPayload = req.body; // expect an object with order fields
-    // basic validation
+    const ordersPayload = req.body; 
     if (!ordersPayload || Object.keys(ordersPayload).length === 0) {
-      return res.status(400).json({ error: 'Order body required' });
+      return res.status(400).json({ error: "Order body required" });
     }
-    // Example required fields: firstName, lastName, items (array)
-    if (!Array.isArray(ordersPayload.items) || ordersPayload.items.length === 0) {
-      return res.status(400).json({ error: 'Order must include items array' });
+    if (
+      !Array.isArray(ordersPayload.items) ||
+      ordersPayload.items.length === 0
+    ) {
+      return res.status(400).json({ error: "Order must include items array" });
     }
-
-    // Add server-side metadata
     ordersPayload.createdAt = new Date();
-    ordersPayload.status = ordersPayload.status || 'pending';
-    // calculate total on server for integrity 
-    ordersPayload.total = Number(ordersPayload.total || ordersPayload.items.reduce((s,i)=> s + ((i.price||0)*(i.quantity||1)), 0));
+    ordersPayload.status = ordersPayload.status || "pending";
+    // calculate total on server for integrity
+    ordersPayload.total = Number(
+      ordersPayload.total ||
+        ordersPayload.items.reduce(
+          (s, i) => s + (i.price || 0) * (i.quantity || 1),
+          0
+        )
+    );
 
-    const result = await db1.collection('orders').insertOne(ordersPayload);
-    const inserted = await db1.collection('orders').findOne({ _id: result.insertedId });
+    const result = await db1.collection("orders").insertOne(ordersPayload);
+    const inserted = await db1
+      .collection("orders")
+      .findOne({ _id: result.insertedId });
     return res.status(201).json(inserted);
-  } catch(err) {
-    console.error('Error creating order:', err);
-    return res.status(500).json({ error: 'Failed to create order' });
+  } catch (err) {
+    console.error("Error creating order:", err);
+    return res.status(500).json({ error: "Failed to create order" });
   }
 });
 
-
 // Update order by id (partial updates)
-app.put('/orders/:id', async (req, res) => {
-   const id = req.params.id;
+app.put("/orders/:id", async (req, res) => {
+  const id = req.params.id;
   const updates = req.body;
   delete updates._id;
   updates.updatedAt = new Date();
-  const r = await db1.collection('orders').updateOne(
-    { _id: new ObjectId(id) },
-    { $set: updates }
-  );
-  const updated = await db1.collection('orders').findOne({ _id: new ObjectId(id) });
+  const r = await db1
+    .collection("orders")
+    .updateOne({ _id: new ObjectId(id) }, { $set: updates });
+  const updated = await db1
+    .collection("orders")
+    .findOne({ _id: new ObjectId(id) });
   res.json(updated);
 });
 
 // Delete order by id
-app.delete('/orders/:id', async (req, res) => {
+app.delete("/orders/:id", async (req, res) => {
   try {
     const id = req.params.id;
-    if (!ObjectId.isValid(id)) return res.status(400).json({ error: 'Invalid id' });
+    if (!ObjectId.isValid(id))
+      return res.status(400).json({ error: "Invalid id" });
 
-    const result = await db1.collection('orders').deleteOne({ _id: new ObjectId(id) });
-    if (result.deletedCount === 0) return res.status(404).json({ error: 'Order not found' });
-    return res.json({ msg: 'Order deleted', id });
-  } catch(err) {
-    console.error('Error deleting order:', err);
-    return res.status(500).json({ error: 'Failed to delete order' });
-  }
-});
-
-//admin logging(fetches users from the database and cross-checks for authentication)
-app.get('/users', async (req, res) => {
-  try {const db = req.app.locals.db;
-    const users = await db.collection('users').find({}).toArray();
-    
-    // Remove passwords from response for security
-    const usersWithoutPasswords = users.map(user => {
-      const { password, ...userWithoutPassword } = user;
-      return userWithoutPassword;
-    });
-    
-    res.json(usersWithoutPasswords);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ error: 'Failed to fetch users' });
-  }
-});
-app.post('/login', async (req, res) => {
-  try {
-    const { email, password } = req.body;
-    
-    // Validate input
-    if (!email || !password) {
-      return res.status(400).json({ 
-        success: false, 
-        message: 'Email and password are required' 
-      });
-    }
-    
-    const db = req.app.locals.db;
-    
-    // Find user by email
-    const user = await db1.collection('users').findOne({ email });
-    
-    if (!user) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid email or password' 
-      });
-    }
-    
-    // Check password
-    if (user.password !== password) {
-      return res.status(401).json({ 
-        success: false, 
-        message: 'Invalid email or password' 
-      });
-    }
-    
-    // Login successful - return user info without password
-    const { password: _, ...userWithoutPassword } = user;
-    
-    res.json({
-      success: true,
-      message: 'Login successful',
-      user: userWithoutPassword
-    });
-    
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Server error during login' 
-    });
+    const result = await db1
+      .collection("orders")
+      .deleteOne({ _id: new ObjectId(id) });
+    if (result.deletedCount === 0)
+      return res.status(404).json({ error: "Order not found" });
+    return res.json({ msg: "Order deleted", id });
+  } catch (err) {
+    console.error("Error deleting order:", err);
+    return res.status(500).json({ error: "Failed to delete order" });
   }
 });
 
 app.get("/healthz", (req, res) => {
   res.status(200).send("OK");
+});
+
+// Serve your HTML file
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "../Project/index.html"));
 });
 
 // ============================================
