@@ -49,6 +49,7 @@ const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 // ============================================
 // 3. MONGODB CONNECTION
 // ============================================
+const uri = `${dbPrefix}${dbUser}:${dbPassword}${dbHost}${dbParams}`;
 const client = new MongoClient(uri, { serverApi: ServerApiVersion.v1 });
 
 let db1;
