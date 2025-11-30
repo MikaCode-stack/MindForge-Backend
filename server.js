@@ -87,11 +87,11 @@ app.param("collectionName", function (req, res, next, collectionName) {
 // 5. REST API ROUTES
 // ============================================
 const fs = require('fs');
-
+app.use('/images/lessons', express.static(path.join(__dirname, 'C:/Users/micha/OneDrive/Desktop/MindForge-final/MindForge-Frontend/images/lessons')));
 //Get allowing images retrieving
 
 app.get('/images/lessons', (req, res) => {
-  const folder = path.join(__dirname, 'C:/Users/micha/OneDrive/Desktop/MindForge-final/MindForge-Frontend/images');
+  const folder = path.join(__dirname, 'C:/Users/micha/OneDrive/Desktop/MindForge-final/MindForge-Frontend/images/lessons');
 
   fs.readdir(folder, (err, files) => {
     if (err) return res.status(500).json({ error: 'Unable to read folder' });
